@@ -80,13 +80,48 @@ class Ghost:
             self.position[2] += 1
         else: #left
             self.position[0] -= 1
-        #se actualiza la variable de posicion sobre el path
-        if self.tipo == 1: #fantasma inteligente
-            self.path_n += 1
+        #Comentamos la parte donde se actualiza la variable de posicion sobre el path, porque no se usará una lista de path pregrabada, sino la IA en tiempo real
+        # if self.tipo == 1: #fantasma inteligente
+        #     self.path_n += 1
+
+    def path_ia(self, pacmanXY):
+        # 1. Obtenemos nuestras coordenadas actuales en la matriz
+        fantasma_mc = [self.XPxToMC[self.position[0] - 20], self.YPxToMC[self.position[2] - 20]]
         
-    def path_ia(self,pacmanXY):
-        # bloque para implementar la IA en los fantasmas
-        self.interseccion_random()            
+        # 2. Traducimos la posición real de Pacman a coordenadas de la matriz
+        # Asumiendo que pacmanXY trae [X_pixeles, Z_pixeles]
+        pacman_mc = [self.XPxToMC[pacmanXY[0] - 20], self.YPxToMC[pacmanXY[2] - 20]] 
+        
+        # 3. ¿Qué opciones reales tiene Pinky ahorita?
+        opciones_validas = self.obtener_movimientos_validos(fantasma_mc[0], fantasma_mc[1], self.direction)
+        
+        mejor_valor = -float('inf')
+        mejor_movimiento = self.direction # Por defecto sigue igual por si hay un error
+        
+        # 4. Probamos cada opción real usando Alfa-Beta para ver cuál es la mejor a futuro
+        for mov in opciones_validas:
+            # Simulamos ese primer paso
+            sim_fantasma = list(fantasma_mc)
+            if mov == 0: sim_fantasma[1] -= 1
+            elif mov == 1: sim_fantasma[0] += 1
+            elif mov == 2: sim_fantasma[1] += 1
+            elif mov == 3: sim_fantasma[0] -= 1
+            
+            # Lanzamos la predicción a profundidad 3 (Suficiente inteligencia sin lag)
+            valor = self.alfa_beta(3, sim_fantasma, pacman_mc, mov, -float('inf'), float('inf'), False) 
+            
+            if valor > mejor_valor:
+                mejor_valor = valor
+                mejor_movimiento = mov
+                
+        # 5. Ejecutamos la decisión maestra
+        self.direction = mejor_movimiento
+        
+        # 6. Actualizamos el modelo 3D para que avance un paso en la nueva dirección
+        if self.direction == 0: self.position[2] -= 1
+        elif self.direction == 1: self.position[0] += 1
+        elif self.direction == 2: self.position[2] += 1
+        elif self.direction == 3: self.position[0] -= 1
         
     def interseccion_random(self):
         #se determina en que tipo de celda esta el fantasma
@@ -129,17 +164,17 @@ class Ghost:
         else:
             self.dir_inv = 1
 
+        opciones_validas = list(self.option)
+
         #se elimina la direccion invertida a la actual, evitando que el
         #fantasma regrese por el camion por donde llego (rebote)
         if (celId != 0) and (celId != 26) and (celId != 27):
-            self.option.remove(self.dir_inv)
+            # Validamos que la dirección inversa sí esté en la lista antes de intentar borrarla
+            if self.dir_inv in opciones_validas:
+                opciones_validas.remove(self.dir_inv)
         
-        #se elige aleatoriamente una opcion entre las disponibles
-        size = len(self.option)
-        dir_rand = random.randint(0, size - 1)
-        
-        #se actualiza el vector de direccion y posicion del fantasma
-        self.direction = self.option[dir_rand]
+        # Elegimos aleatoriamente usando random.choice que es más limpio en Python
+        self.direction = random.choice(opciones_validas)
         
         if self.direction == 0:
             self.position[2] -= 1
@@ -149,19 +184,138 @@ class Ghost:
             self.position[2] += 1
         elif self.direction == 3:
             self.position[0] -= 1
-            
+
+
+    #------------Esta es la Parte especial de Pinky-------------------
+
+    def distancia_manhattan(self, nodoXY, pacmanXY):
+        distancia = abs(nodoXY[0] - pacmanXY[0]) + abs(nodoXY[1] - pacmanXY[1])
+        return -distancia   #Vamos a retornar en negativo, para que las distancias más cortas tengan mayor peso en el Minimax ya que Pinky es el jugador MAX
+
+    def distancia_euclidiana(self, nodoXY, pacmanXY):
+        distancia = math.sqrt( ((nodoXY[0] - pacmanXY[0]) ** 2) + ((nodoXY[1] - pacmanXY[1]) ** 2) )  
+        return -distancia
+
+    def obtener_movimientos_validos(self, pos_x_de_MC, pos_y_de_MC, dir_actual): 
+        try:
+            celId = self.MC[pos_y_de_MC][pos_x_de_MC]   # Intentamos leer la celda en la Matriz de Control simulada con coordenadass simuladas
+        except IndexError:
+            return [] # Si la simulación se sale del mapa, es un callejón sin salida
+
+        opciones_celda = []
+        if celId == 0: opciones_celda = [dir_actual]
+        elif celId == 10: opciones_celda = self.options[0]
+        elif celId == 11: opciones_celda = self.options[1]
+        elif celId == 12: opciones_celda = self.options[2]
+        elif celId == 13: opciones_celda = self.options[3]
+        elif celId == 21: opciones_celda = self.options[4]
+        elif celId == 22: opciones_celda = self.options[5]
+        elif celId == 23: opciones_celda = self.options[6]
+        elif celId == 24: opciones_celda = self.options[7]
+        elif celId == 25: opciones_celda = self.options[8]
+        elif celId == 26: opciones_celda = self.options[9]
+        elif celId == 27: opciones_celda = self.options[10]
+        else: return []
+
+        opciones_validas = list(opciones_celda)
+        
+        # calculamos la inversa simulada
+        if dir_actual == 0: dir_inv = 2
+        elif dir_actual == 1: dir_inv = 3
+        elif dir_actual == 2: dir_inv = 0
+        else: dir_inv = 1
+
+        # aqui evitamos el regreso en la simulación
         if (celId != 0) and (celId != 26) and (celId != 27):
-            self.option.append(self.dir_inv)    
+            if dir_inv in opciones_validas:
+                opciones_validas.remove(dir_inv)
+                
+        return opciones_validas
+
+    def alfa_beta(self, profundidad, nodo_fantasma, nodo_pacman, dir_fantasma, alpha, beta, maximizando):
+        # CONDICIÓN DE PARADA: Si llegamos al límite de predicción o atraparon a Pacman
+        if profundidad == 0 or (nodo_fantasma == nodo_pacman):
+            # Aquí es donde usamos la heurística que programamos antes
+            return self.distancia_manhattan(nodo_fantasma, nodo_pacman)
+
+        if maximizando: # TURNO DE PINKY (Busca el valor más alto / más cerca)
+            max_eval = -float('inf')
+            movimientos = self.obtener_movimientos_validos(nodo_fantasma[0], nodo_fantasma[1], dir_fantasma)
+            
+            if not movimientos: return self.distancia_manhattan(nodo_fantasma, nodo_pacman)
+
+            for mov in movimientos:
+                # Imaginamos a Pinky dando un paso en esa dirección
+                nuevo_fantasma = list(nodo_fantasma)
+                if mov == 0: nuevo_fantasma[1] -= 1   # Arriba
+                elif mov == 1: nuevo_fantasma[0] += 1 # Derecha
+                elif mov == 2: nuevo_fantasma[1] += 1 # Abajo
+                elif mov == 3: nuevo_fantasma[0] -= 1 # Izquierda
+                
+                # Llamada recursiva (Ahora imaginamos qué haría Pacman)
+                evaluacion = self.alfa_beta(profundidad - 1, nuevo_fantasma, nodo_pacman, mov, alpha, beta, False)
+                
+                max_eval = max(max_eval, evaluacion)
+                alpha = max(alpha, evaluacion)
+                if beta <= alpha:
+                    break # ¡ZAS! PODA ALFA-BETA. Rama descartada.
+            return max_eval
+
+        else: # TURNO DE PACMAN (Busca el valor más bajo / escapar)
+            min_eval = float('inf')
+            # Simulamos que Pacman evalúa sus 4 lados para intentar huir
+            movimientos_pacman = [0, 1, 2, 3] 
+            
+            for mov in movimientos_pacman:
+                nuevo_pacman = list(nodo_pacman)
+                if mov == 0: nuevo_pacman[1] -= 1
+                elif mov == 1: nuevo_pacman[0] += 1
+                elif mov == 2: nuevo_pacman[1] += 1
+                elif mov == 3: nuevo_pacman[0] -= 1
+                
+                # Llamada recursiva (Le toca a Pinky de nuevo)
+                evaluacion = self.alfa_beta(profundidad - 1, nodo_fantasma, nuevo_pacman, dir_fantasma, alpha, beta, True)
+                
+                min_eval = min(min_eval, evaluacion)
+                beta = min(beta, evaluacion)
+                if beta <= alpha:
+                    break # ¡ZAS! PODA ALFA-BETA. Rama descartada.
+            return min_eval        
+
+    #------------Este es el Fin de la Parte especial de Pinky-------------------
     
-    def update2(self,pacmanXY):
-        #si el fantasma se encuentra en una interseccion (valida o "falsa interseccion")
+    def update2(self, pacmanXY):
+        dist_x = abs(self.position[0] - pacmanXY[0])
+        dist_z = abs(self.position[2] - pacmanXY[2])
+        
+        if dist_x < 20 and dist_z < 20:
+            # Usamos hasattr para asegurar que el letrero se imprima una sola vez por choque entre pacman y fantasmita
+            if not hasattr(self, 'pacman_atrapado'):
+
+                nombres_fantasmas = {
+                    0: "Blinky (Rojo)",
+                    1: "Pinky (Rosa)",
+                    2: "Inky (Azul)",
+                    3: "Clyde (Naranja)"
+                }
+                
+                nombre_fantasma = nombres_fantasmas.get(getattr(self, 'Id', -1), "Un fantasma")
+                comportamiento = "[IA Alfa-Beta]" if self.tipo == 1 else "[Aleatorio]"
+                
+                print(f"\t\t¡Pacman encontrado por {nombre_fantasma} {comportamiento}!")
+                self.pacman_atrapado = True
+            
+            #congelar al fantasma
+            return
+            
+        # 2: Logica de movimiento
         if ((self.YPxToMC[self.position[2] - 20] != -1) and 
             (self.XPxToMC[self.position[0] - 20] != -1)):
-            if self.tipo == 1: #agente inteligente, se manda la posición del objetivo
+            if self.tipo == 1: 
                 self.path_ia(pacmanXY)
             else:
                 self.interseccion_random()
-        else: #si no se encuentra en una interseccion o es falsa interseccion
+        else: # si no se encuentra en una interseccion
             self.sigue_adelante()
         
     def draw(self):

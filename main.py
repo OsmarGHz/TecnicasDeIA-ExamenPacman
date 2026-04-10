@@ -122,10 +122,10 @@ grid = []
 pc = Pacman(matrix, MC, XPxToMC, YPxToMC)
 #fantasmas
 ghosts = []
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 380, 2, 0))
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 20, 0, 0))
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 0))
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 0))
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 380, 2, 0)) # Naranja Clyde
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 20, 0, 0)) # Azul Inky
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 1)) # Rosa Pinky
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 0)) # Rojo Blinky
 
 
 pygame.init()
