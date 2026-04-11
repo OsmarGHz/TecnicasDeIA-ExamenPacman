@@ -84,11 +84,19 @@ class Ghost:
         # if self.tipo == 1: #fantasma inteligente
         #     self.path_n += 1
 
-    def path_ia(self, pacmanXY):
+    def path_ia(self, pacmanXY, lista_fantasmas):
         #posicion del fantasma en la matriz de control
         fantasma_mc = [self.XPxToMC[self.position[0] - 20], self.YPxToMC[self.position[2] - 20]]
         #posicion del pacman en la matriz de control (pacmanXY trae [X_pixeles, Z_pixeles])
         pacman_mc = [self.XPxToMC[pacmanXY[0] - 20], self.YPxToMC[pacmanXY[2] - 20]] 
+
+        aliado_mc = None
+        if self.tipo == 2: # Solo Inky y Clyde se buscan entre ellos
+            for f in lista_fantasmas:
+                # Buscamos al otro fantasma que también sea tipo 2, y que no sea pacman
+                if f.tipo == 2 and f != self:
+                    aliado_mc = [self.XPxToMC[f.position[0] - 20], self.YPxToMC[f.position[2] - 20]]
+                    break
         
         #se obtienen las opciones de movimiento validas desde la posicion actual
         opciones_validas = self.obtener_movimientos_validos(fantasma_mc[0], fantasma_mc[1], self.direction)
@@ -105,8 +113,8 @@ class Ghost:
             elif mov == 2: sim_fantasma[1] += 1
             elif mov == 3: sim_fantasma[0] -= 1
             
-            #profundidad 3: suficiente para buenas decisiones sin afectar rendimiento
-            valor = self.alfa_beta(3, sim_fantasma, pacman_mc, mov, -float('inf'), float('inf'), False) 
+            #profundidad 3: suficiente para tomar "buenas" decisiones sin afectar rendimiento
+            valor = self.alfa_beta(3, sim_fantasma, pacman_mc, mov, -float('inf'), float('inf'), False, aliado_mc) 
             
             if valor > mejor_valor:
                 mejor_valor = valor
@@ -183,15 +191,37 @@ class Ghost:
         elif self.direction == 3:
             self.position[0] -= 1
 
-
-    #------------Esta es la Parte especial de Pinky-------------------
-
     def heuristica_combinada(self, nodoXY, pacmanXY):
         manhattan = abs(nodoXY[0] - pacmanXY[0]) + abs(nodoXY[1] - pacmanXY[1])
         euclidiana = math.sqrt((nodoXY[0] - pacmanXY[0])**2 + (nodoXY[1] - pacmanXY[1])**2)
         # Manhattan domina (0.75) porque el laberinto es cuadriculado y el movimiento diagonal es imposible.
         # Euclidiana aporta (0.25) como desempate geométrico cuando dos rutas tienen igual distancia Manhattan.
         return -(0.75 * manhattan + 0.25 * euclidiana)
+
+    def heuristica_colaborativa(self, nodoXY, pacmanXY, aliadoXY):
+        #distancia al pacman
+        dist_pacman = abs(nodoXY[0] - pacmanXY[0]) + abs(nodoXY[1] - pacmanXY[1])
+        
+        if aliadoXY:
+            dist_aliado = abs(nodoXY[0] - aliadoXY[0]) + abs(nodoXY[1] - aliadoXY[1])
+        else:
+            dist_aliado = 10 #sin aliado, se comporta como pinky
+
+        bonus_separacion = 0
+        
+        #si estan a menos de 5 celdas se estorban, hay que separarlos
+        if dist_aliado < 5:
+            mi_id = getattr(self, 'Id', 2)
+            
+            if mi_id % 2 == 0:
+                dist_eje = abs(nodoXY[0] - aliadoXY[0]) #clyde se separa en horizontal
+            else:
+                dist_eje = abs(nodoXY[1] - aliadoXY[1]) #inky se separa en vertical
+                
+            bonus_separacion = dist_eje * 4 #peso alto para que la separacion tenga prioridad temporal
+
+        #se acerca a pacman, pero si necesita separarse del aliado suma el bonus
+        return -dist_pacman + bonus_separacion
 
     def obtener_movimientos_validos(self, pos_x_de_MC, pos_y_de_MC, dir_actual): 
         #se lee la celda de la matriz de control, si se sale del rango retorna vacio
@@ -231,12 +261,16 @@ class Ghost:
                 
         return opciones_validas
 
-    def alfa_beta(self, profundidad, nodo_fantasma, nodo_pacman, dir_fantasma, alpha, beta, maximizando):
+    def alfa_beta(self, profundidad, nodo_fantasma, nodo_pacman, dir_fantasma, alpha, beta, maximizando, aliado_mc=None):
         #caso base: se llego al limite de profundidad o el fantasma alcanzo a pacman
         if profundidad == 0 or (nodo_fantasma == nodo_pacman):
-            return self.heuristica_combinada(nodo_fantasma, nodo_pacman)
+            # Si es tipo 2 y tiene aliado, usa la trampa de manada. Si no, usa la lógica normal de Pinky.
+            if self.tipo == 2 and aliado_mc:
+                return self.heuristica_colaborativa(nodo_fantasma, nodo_pacman, aliado_mc)
+            else:
+                return self.heuristica_combinada(nodo_fantasma, nodo_pacman)
 
-        if maximizando: #turno de pinky, busca acercarse (valor mas alto)
+        if maximizando:
             max_eval = -float('inf')
             movimientos = self.obtener_movimientos_validos(nodo_fantasma[0], nodo_fantasma[1], dir_fantasma)
             
@@ -251,7 +285,7 @@ class Ghost:
                 elif mov == 3: nuevo_fantasma[0] -= 1 #izquierda
                 
                 #llamada recursiva, ahora le toca a pacman
-                evaluacion = self.alfa_beta(profundidad - 1, nuevo_fantasma, nodo_pacman, mov, alpha, beta, False)
+                evaluacion = self.alfa_beta(profundidad - 1, nuevo_fantasma, nodo_pacman, mov, alpha, beta, False, aliado_mc)
                 
                 max_eval = max(max_eval, evaluacion)
                 alpha = max(alpha, evaluacion)
@@ -271,18 +305,16 @@ class Ghost:
                 elif mov == 2: nuevo_pacman[1] += 1
                 elif mov == 3: nuevo_pacman[0] -= 1
                 
-                #llamada recursiva, le toca a pinky de nuevo
-                evaluacion = self.alfa_beta(profundidad - 1, nodo_fantasma, nuevo_pacman, dir_fantasma, alpha, beta, True)
+                #llamada recursiva, le toca a fantasma de nuevo
+                evaluacion = self.alfa_beta(profundidad - 1, nodo_fantasma, nuevo_pacman, dir_fantasma, alpha, beta, True, aliado_mc)
                 
                 min_eval = min(min_eval, evaluacion)
                 beta = min(beta, evaluacion)
                 if beta <= alpha:
                     break #poda alfa-beta
             return min_eval        
-
-    #------------Este es el Fin de la Parte especial de Pinky-------------------
     
-    def update2(self, pacmanXY):
+    def update2(self, pacmanXY, lista_fantasmas=[]):
         if not hasattr(self, 'veces_encontrado'):
             self.veces_encontrado = 0
             self.tocando_pacman = False
@@ -303,7 +335,9 @@ class Ghost:
                 }
                 
                 nombre_fantasma = nombres_fantasmas.get(getattr(self, 'Id', -1), "Fantasma no reconocido")
-                comportamiento = "[IA Alfa-Beta]" if self.tipo == 1 else "[Aleatorio]"
+                if self.tipo == 2: comportamiento = "[IA Colaborativa]"
+                elif self.tipo == 1: comportamiento = "[IA Alfa-Beta]"
+                else: comportamiento = "[Aleatorio]"
                 
                 print(f"\t\tPacman tocado por {nombre_fantasma} {comportamiento} ({self.veces_encontrado})")
                 
@@ -314,8 +348,8 @@ class Ghost:
 
         if ((self.YPxToMC[self.position[2] - 20] != -1) and 
             (self.XPxToMC[self.position[0] - 20] != -1)):
-            if self.tipo == 1: 
-                self.path_ia(pacmanXY)
+            if self.tipo == 1 or self.tipo == 2:
+                self.path_ia(pacmanXY, lista_fantasmas)
             else:
                 self.interseccion_random()
         else:

@@ -122,8 +122,8 @@ grid = []
 pc = Pacman(matrix, MC, XPxToMC, YPxToMC)
 #fantasmas
 ghosts = []
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 380, 2, 0)) # Naranja Clyde
-ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 20, 0, 0)) # Azul Inky
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 380, 2, 2)) # Naranja Clyde
+ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 20, 0, 2)) # Azul Inky
 ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 1)) # Rosa Pinky
 ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 0)) # Rojo Blinky
 
@@ -238,7 +238,7 @@ def display():
     pc.draw()
     for g in ghosts:
         g.draw()
-        g.update2(pc.position)
+        g.update2(pc.position, ghosts)
     
 done = False
 Init()
