@@ -285,37 +285,47 @@ class Ghost:
     #------------Este es el Fin de la Parte especial de Pinky-------------------
     
     def update2(self, pacmanXY):
+        if not hasattr(self, 'veces_encontrado'):
+            self.veces_encontrado = 0
+            self.tocando_pacman = False
+
+        # 2. Validación de Choque (Colisión por Bounding Box a 40px)
         dist_x = abs(self.position[0] - pacmanXY[0])
         dist_z = abs(self.position[2] - pacmanXY[2])
         
         if dist_x < 20 and dist_z < 20:
-            # Usamos hasattr para asegurar que el letrero se imprima una sola vez por choque entre pacman y fantasmita
-            if not hasattr(self, 'pacman_atrapado'):
-
+            # Si acaba de chocar (no lo estaba tocando en el fotograma anterior)
+            if not self.tocando_pacman:
+                self.veces_encontrado += 1
+                self.tocando_pacman = True # Bloqueamos para no spamear la consola
+                
                 nombres_fantasmas = {
                     0: "Blinky (Rojo)",
                     1: "Pinky (Rosa)",
-                    2: "Inky (Azul)",
-                    3: "Clyde (Naranja)"
+                    2: "Clyde (Naranja)",#"Inky (Azul)",
+                    3: "Inky (Azul)"
                 }
-                
                 nombre_fantasma = nombres_fantasmas.get(getattr(self, 'Id', -1), "Un fantasma")
                 comportamiento = "[IA Alfa-Beta]" if self.tipo == 1 else "[Aleatorio]"
                 
-                print(f"\t\t¡Pacman encontrado por {nombre_fantasma} {comportamiento}!")
-                self.pacman_atrapado = True
+                print(f"\t\t¡Pacman encontrado por {nombre_fantasma} {comportamiento} ({self.veces_encontrado})")
             
-            #congelar al fantasma
+            # El fantasma se queda congelado *mientras* Pacman esté sobre él
             return
             
-        # 2: Logica de movimiento
+        else:
+            # Si Pacman ya se movió y la distancia vuelve a ser mayor a 40,
+            # reseteamos la bandera para que la persecución se reanude.
+            self.tocando_pacman = False
+
+        # 3. Lógica de movimiento 
         if ((self.YPxToMC[self.position[2] - 20] != -1) and 
             (self.XPxToMC[self.position[0] - 20] != -1)):
             if self.tipo == 1: 
                 self.path_ia(pacmanXY)
             else:
                 self.interseccion_random()
-        else: # si no se encuentra en una interseccion
+        else:
             self.sigue_adelante()
         
     def draw(self):
