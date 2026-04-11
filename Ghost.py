@@ -261,16 +261,30 @@ class Ghost:
                 
         return opciones_validas
 
-    def alfa_beta(self, profundidad, nodo_fantasma, nodo_pacman, dir_fantasma, alpha, beta, maximizando, aliado_mc=None):
+    def alfa_beta(self, profundidad, nodo_fantasma, nodo_pacman, dir_fantasma, alpha, beta, maximizando, aliado_mc=None, lista_tabu=None, profundidad_reposo=0):
+        #se inicializa la lista tabu si es la primera llamada
+        if lista_tabu is None:
+            lista_tabu = []
+            
+        #se agrega la posicion actual a la lista de visitados
+        nueva_lista_tabu = lista_tabu + [nodo_fantasma]
+
+        #distancia actual entre fantasma y pacman
+        dist_actual = abs(nodo_fantasma[0] - nodo_pacman[0]) + abs(nodo_fantasma[1] - nodo_pacman[1])
+
+        #busqueda en reposo: si estan a 2 celdas o menos, se extiende la profundidad para no cortar en mal momento
+        if profundidad == 0 and dist_actual <= 2 and profundidad_reposo < 2:
+            profundidad += 1
+            profundidad_reposo += 1
+
         #caso base: se llego al limite de profundidad o el fantasma alcanzo a pacman
         if profundidad == 0 or (nodo_fantasma == nodo_pacman):
-            # Si es tipo 2 y tiene aliado, usa la trampa de manada. Si no, usa la lógica normal de Pinky.
             if self.tipo == 2 and aliado_mc:
                 return self.heuristica_colaborativa(nodo_fantasma, nodo_pacman, aliado_mc)
             else:
                 return self.heuristica_combinada(nodo_fantasma, nodo_pacman)
 
-        if maximizando:
+        if maximizando: #turno del fantasma, busca acercarse
             max_eval = -float('inf')
             movimientos = self.obtener_movimientos_validos(nodo_fantasma[0], nodo_fantasma[1], dir_fantasma)
             
@@ -283,14 +297,23 @@ class Ghost:
                 elif mov == 1: nuevo_fantasma[0] += 1 #derecha
                 elif mov == 2: nuevo_fantasma[1] += 1 #abajo
                 elif mov == 3: nuevo_fantasma[0] -= 1 #izquierda
-                
+
+                #busqueda tabu: si ya visitamos esa celda en esta simulacion, la saltamos
+                if nuevo_fantasma in nueva_lista_tabu:
+                    continue
+
                 #llamada recursiva, ahora le toca a pacman
-                evaluacion = self.alfa_beta(profundidad - 1, nuevo_fantasma, nodo_pacman, mov, alpha, beta, False, aliado_mc)
+                evaluacion = self.alfa_beta(profundidad - 1, nuevo_fantasma, nodo_pacman, mov, alpha, beta, False, aliado_mc, nueva_lista_tabu, profundidad_reposo)
                 
                 max_eval = max(max_eval, evaluacion)
                 alpha = max(alpha, evaluacion)
                 if beta <= alpha:
                     break #poda alfa-beta
+            
+            #si todos los movimientos eran tabu, se retorna la heuristica actual
+            if max_eval == -float('inf'):
+                return self.heuristica_combinada(nodo_fantasma, nodo_pacman)
+                
             return max_eval
 
         else: #turno de pacman, busca escapar (valor mas bajo)
@@ -305,8 +328,8 @@ class Ghost:
                 elif mov == 2: nuevo_pacman[1] += 1
                 elif mov == 3: nuevo_pacman[0] -= 1
                 
-                #llamada recursiva, le toca a fantasma de nuevo
-                evaluacion = self.alfa_beta(profundidad - 1, nodo_fantasma, nuevo_pacman, dir_fantasma, alpha, beta, True, aliado_mc)
+                #llamada recursiva, le toca al fantasma de nuevo (pacman no usa la lista tabu)
+                evaluacion = self.alfa_beta(profundidad - 1, nodo_fantasma, nuevo_pacman, dir_fantasma, alpha, beta, True, aliado_mc, nueva_lista_tabu, profundidad_reposo)
                 
                 min_eval = min(min_eval, evaluacion)
                 beta = min(beta, evaluacion)
