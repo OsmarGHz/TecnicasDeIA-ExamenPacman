@@ -10,6 +10,7 @@ import math
 import os
 import numpy as np
 import pandas as pd
+import time
 
 class Pacman:
     def __init__(self,mapa, mc, x_mc, y_mc):
@@ -32,7 +33,11 @@ class Pacman:
         #se almacena la direccion inicial del pacman
         self.direction = 1 #asumiendo que inicia en la posicion (0,0)
         #bandera para saber si el pacman se encuentra en estado inicial del juego
-        self.start = 1      
+        self.start = 1
+        #buffer de input: guarda la ultima direccion presionada y cuando se presiono
+        self.buffered_dir = -1
+        self.buffer_time = 0
+        self.BUFFER_WINDOW = 0.20 #200ms de ventana para el buffer
         
     def loadTextures(self, texturas, id):
         self.texturas = texturas
@@ -51,6 +56,18 @@ class Pacman:
         glEnd()
         
     def update(self, dir):
+        #si se presiono una direccion, la guardamos en el buffer
+        if dir != -1:
+            self.buffered_dir = dir
+            self.buffer_time = time.time()
+        
+        #si hay un input en el buffer y no ha expirado, lo usamos
+        if self.buffered_dir != -1 and (time.time() - self.buffer_time) < self.BUFFER_WINDOW:
+            dir_a_usar = self.buffered_dir
+        else:
+            dir_a_usar = dir
+            self.buffered_dir = -1 #expiro el buffer
+        
         #si pacman se encuentra en una interseccion (valida o "falsa interseccion")
         if ((self.YPxToMC[self.position[2] - 20] != -1) and 
             (self.XPxToMC[self.position[0] - 20] != -1)):
@@ -71,9 +88,9 @@ class Pacman:
             else:    
                 #si pacman se encuentra en una interseccion
                 #si no se selecciono una direccion, entonces se evalua con la direccion actual
-                if ((dir == -1) and (self.start != 1)):
-                    dir = self.direction
-                if dir == 0: #up
+                if ((dir_a_usar == -1) and (self.start != 1)):
+                    dir_a_usar = self.direction
+                if dir_a_usar == 0: #up
                     #print("up")
                     if ((self.MC[self.positionMC[1]][self.positionMC[0]] == 12) or 
                         (self.MC[self.positionMC[1]][self.positionMC[0]] == 13) or 
@@ -84,7 +101,8 @@ class Pacman:
                         self.direction = 0
                         self.position[2] -= 1
                         self.start = 0
-                if dir == 1: #right
+                        self.buffered_dir = -1 #se consumio el buffer
+                if dir_a_usar == 1: #right
                     #print("right")
                     if ((self.MC[self.positionMC[1]][self.positionMC[0]] == 10) or
                         (self.MC[self.positionMC[1]][self.positionMC[0]] == 12) or
@@ -96,7 +114,8 @@ class Pacman:
                         self.direction = 1
                         self.position[0] += 1
                         self.start = 0
-                if dir == 2: #down
+                        self.buffered_dir = -1
+                if dir_a_usar == 2: #down
                     #print("down")
                     if ((self.MC[self.positionMC[1]][self.positionMC[0]] == 10) or
                         (self.MC[self.positionMC[1]][self.positionMC[0]] == 11) or
@@ -107,7 +126,8 @@ class Pacman:
                         self.direction = 2
                         self.position[2] += 1
                         self.start = 0
-                if dir == 3: #left
+                        self.buffered_dir = -1
+                if dir_a_usar == 3: #left
                     #print("left")
                     if ((self.MC[self.positionMC[1]][self.positionMC[0]] == 11) or
                         (self.MC[self.positionMC[1]][self.positionMC[0]] == 13) or
@@ -119,6 +139,7 @@ class Pacman:
                         self.direction = 3
                         self.position[0] -= 1
                         self.start = 0
+                        self.buffered_dir = -1
       
         #si no se encuentra en una interseccion
         else:

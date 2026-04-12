@@ -10,6 +10,7 @@ import math
 import os
 import numpy as np
 import pandas as pd
+import time
 
 # Se carga el archivo de la clase Cubo
 import sys
@@ -26,15 +27,15 @@ ZNEAR=0.01
 ZFAR=900.0
 #Variables para definir la posicion del observador
 #gluLookAt(EYE_X,EYE_Y,EYE_Z,CENTER_X,CENTER_Y,CENTER_Z,UP_X,UP_Y,UP_Z)
-EYE_X = 300.0 + 200.0
-EYE_Y = 200.0
-EYE_Z = 300.0 + 200.0
-CENTER_X = 0 + 200
-CENTER_Y = 0
-CENTER_Z = 0 + 200
-UP_X=0
-UP_Y=1
-UP_Z=0
+EYE_X = 200.0
+EYE_Y = 400.0
+EYE_Z = 200.0
+CENTER_X = 200.0
+CENTER_Y = 0.0
+CENTER_Z = 200.0
+UP_X=0.0
+UP_Y=0.0
+UP_Z=-1.0
 #Variables para dibujar los ejes del sistema
 X_MIN=-500
 X_MAX=500
@@ -44,9 +45,6 @@ Z_MIN=-500
 Z_MAX=500
 #Dimension del plano
 DimBoard = 400
-#Variables para el control del observador
-theta = 0.0
-radius = 300
 
 
 #Arreglo para el manejo de texturas
@@ -127,6 +125,110 @@ ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 378, 20, 0, 2)) # Azul Inky
 ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 1)) # Rosa Pinky
 ghosts.append(Ghost(matrix, MC, XPxToMC, YPxToMC, 20, 380, 3, 0)) # Rojo Blinky
 
+
+#posicion inicial de la camara para la animacion de intro (vista cinematica)
+INTRO_EYE_START    = [200.0, 600.0, 800.0]
+INTRO_CENTER_START = [200.0, 0.0,   200.0]
+INTRO_UP_START     = [0.0,   1.0,   0.0]
+#posicion final = la posicion normal del juego
+INTRO_EYE_END    = [EYE_X, EYE_Y, EYE_Z]
+INTRO_CENTER_END = [CENTER_X, CENTER_Y, CENTER_Z]
+INTRO_UP_END     = [UP_X, UP_Y, UP_Z]
+#duraciones en segundos
+INTRO_DURATION = 3.0
+READY_DURATION = 1.5
+GO_DURATION    = 0.8
+
+#interpolacion lineal entre dos valores
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+#interpolacion lineal entre dos vectores [x,y,z]
+def lerp_vec(v1, v2, t):
+    return [lerp(v1[i], v2[i], t) for i in range(3)]
+
+#easing: arranca rapido y frena al final (hace que se vea mas natural)
+def ease_out_cubic(t):
+    return 1.0 - (1.0 - t) ** 3
+
+#genera un sonido de inicio tipo arcade con tonos ascendentes
+def generar_sonido_inicio():
+    sample_rate = 44100
+    #notas: Do-Mi-Sol-Do alto (acorde mayor ascendente)
+    #notas = [523, 659, 784, 1047] #C5, E5, G5, C6 pero puestos en Hz
+    notas = [246, 494, 370, 311, 494, 370, 311, 0, 246, 520, 370, 311, 520, 370, 311, 0, 246, 494, 370, 311, 494, 370, 311, 0, 312, 0, 330, 0, 376, 0, 494, 0]
+    duracion_nota = 0.15
+    
+    sonido_completo = np.array([], dtype=np.int16)
+    
+    for freq in notas:
+        t = np.linspace(0, duracion_nota, int(sample_rate * duracion_nota), False)
+        onda = np.sin(2 * np.pi * freq * t)
+        #envolvente: ataque rapido, decaimiento suave
+        envolvente = np.exp(-t * 8) * (1 - np.exp(-t * 100))
+        onda = (onda * envolvente * 32767 * 0.5).astype(np.int16)
+        sonido_completo = np.concatenate([sonido_completo, onda])
+    
+    #se hace estereo porque pygame lo necesita por defecto
+    stereo = np.column_stack((sonido_completo, sonido_completo))
+    return pygame.sndarray.make_sound(stereo)
+
+#renderiza texto con pygame.font y lo convierte a textura de OpenGL
+def render_text_to_texture(text, font_size=72, color=(255, 255, 0)):
+    font = pygame.font.SysFont('Arial', font_size, bold=True)
+    text_surface = font.render(text, True, color)
+    text_data = pygame.image.tostring(text_surface, "RGBA", True)
+    w, h = text_surface.get_size()
+    
+    tex_id = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, tex_id)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+    
+    return tex_id, w, h
+
+#dibuja una textura de texto centrada en pantalla como overlay 2D
+def draw_text_overlay(tex_id, w, h, alpha=1.0):
+    #se cambia a proyeccion ortografica 2D para dibujar encima de la escena 3D
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    glOrtho(0, screen_width, 0, screen_height, -1, 1)
+    
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    
+    #desactivamos depth test para que el texto se vea encima de todo
+    glDisable(GL_DEPTH_TEST)
+    glEnable(GL_TEXTURE_2D)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    
+    glBindTexture(GL_TEXTURE_2D, tex_id)
+    glColor4f(1.0, 1.0, 1.0, alpha)
+    
+    #centramos el texto en pantalla
+    x = (screen_width - w) / 2
+    y = (screen_height - h) / 2
+    
+    glBegin(GL_QUADS)
+    glTexCoord2f(0, 0); glVertex2f(x, y)
+    glTexCoord2f(1, 0); glVertex2f(x + w, y)
+    glTexCoord2f(1, 1); glVertex2f(x + w, y + h)
+    glTexCoord2f(0, 1); glVertex2f(x, y + h)
+    glEnd()
+    
+    glDisable(GL_BLEND)
+    glDisable(GL_TEXTURE_2D)
+    glEnable(GL_DEPTH_TEST)
+    
+    #restauramos las matrices originales
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+    glPopMatrix()
 
 pygame.init()
 
@@ -220,68 +322,126 @@ def PlanoTexturizado():
     glEnd()              
     glDisable(GL_TEXTURE_2D)
 
-#Se mueve al observador circularmente al rededor del plano XZ a una altura fija (EYE_Y)
-def lookat():
-    global EYE_X
-    global EYE_Z
-    global radius
-    center = DimBoard / 2
-    EYE_X = radius * (math.cos(math.radians(theta)) + math.sin(math.radians(theta))) + center
-    EYE_Z = radius * (-math.sin(math.radians(theta)) + math.cos(math.radians(theta))) + center
+#configura la camara con los parametros dados
+def setup_camera(eye, center, up):
+    glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluLookAt(EYE_X,EYE_Y,EYE_Z,CENTER_X,CENTER_Y,CENTER_Z,UP_X,UP_Y,UP_Z)
+    gluPerspective(FOVY, screen_width/screen_height, ZNEAR, ZFAR)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+    gluLookAt(eye[0], eye[1], eye[2],
+              center[0], center[1], center[2],
+              up[0], up[1], up[2])
 
 def display():
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    Axis()
     PlanoTexturizado()
     pc.draw()
     for g in ghosts:
         g.draw()
         g.update2(pc.position, ghosts)
-    
+
+#dibuja la escena sin mover fantasmas (para la intro y el ready/go)
+def display_intro():
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    PlanoTexturizado()
+    pc.draw()
+    for g in ghosts:
+        g.draw()
+
 done = False
 Init()
-#finding(matrix, (xarray[0]-20,zarray[0]-20), (xarray[9]-20,zarray[9]-20))
+
+#sonido de inicio
+sonido_inicio = generar_sonido_inicio()
+sonido_inicio.play()
+
+#texturas de texto para READY y GO
+tex_ready, w_ready, h_ready = render_text_to_texture("LISTO?", 96, (255, 255, 0))
+tex_go, w_go, h_go = render_text_to_texture("VAMOS!", 120, (0, 255, 100))
+
+#estados del juego: 0=intro, 1=ready, 2=go, 3=jugando
+game_state = 0
+state_timer = time.time()
+
 while not done:
     for event in pygame.event.get():
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 done = True
     
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_RIGHT]:
-        if theta > 359.0:
-            theta = 0
+    current_time = time.time()
+    
+    #fase de intro: animacion de camara
+    if game_state == 0:
+        elapsed = current_time - state_timer
+        t = min(elapsed / INTRO_DURATION, 1.0)
+        t_eased = ease_out_cubic(t)
+        
+        #se interpolan las posiciones de la camara entre inicio y fin
+        current_eye = lerp_vec(INTRO_EYE_START, INTRO_EYE_END, t_eased)
+        current_center = lerp_vec(INTRO_CENTER_START, INTRO_CENTER_END, t_eased)
+        current_up = lerp_vec(INTRO_UP_START, INTRO_UP_END, t_eased)
+        
+        #se normaliza el vector UP para evitar distorsiones
+        up_len = math.sqrt(sum(x*x for x in current_up))
+        if up_len > 0:
+            current_up = [x/up_len for x in current_up]
+        
+        setup_camera(current_eye, current_center, current_up)
+        display_intro()
+        
+        if t >= 1.0:
+            game_state = 1
+            state_timer = current_time
+    
+    #ready
+    elif game_state == 1:
+        elapsed = current_time - state_timer
+        display_intro()
+        #parpadeo sutil con sin()
+        alpha = 0.7 + 0.3 * math.sin(elapsed * 5)
+        draw_text_overlay(tex_ready, w_ready, h_ready, alpha)
+        
+        if elapsed >= READY_DURATION:
+            game_state = 2
+            state_timer = current_time
+    
+    #go
+    elif game_state == 2:
+        elapsed = current_time - state_timer
+        display_intro()
+        #fade-out gradual
+        alpha = max(0, 1.0 - elapsed / GO_DURATION)
+        #efecto de escala que crece un poco
+        scale = 1.0 + elapsed * 0.5
+        draw_text_overlay(tex_go, int(w_go * scale), int(h_go * scale), alpha)
+        
+        if elapsed >= GO_DURATION:
+            game_state = 3
+    
+    #fase de juego normal
+    elif game_state == 3:
+        keys = pygame.key.get_pressed()
+        #Se verifica la direccion para el pacman    
+        if keys[pygame.K_w]:
+            #direccion 0
+            pc.update(0)
+        elif keys[pygame.K_d]:
+            #direccion 1
+            pc.update(1)
+        elif keys[pygame.K_s]:
+            #direccion 2
+            pc.update(2)
+        elif keys[pygame.K_a]:
+            #direccion 1
+            pc.update(3)
         else:
-            theta += 1.0
-        lookat()
-    if keys[pygame.K_LEFT]:
-        if theta < 1.0:
-            theta = 360.0
-        else:
-            theta += -1.0
-        lookat()
-    #Se verifica la direccion para el pacman    
-    if keys[pygame.K_w]:
-        #direccion 0
-        pc.update(0)
-    elif keys[pygame.K_d]:
-        #direccion 1
-        pc.update(1)
-    elif keys[pygame.K_s]:
-        #direccion 2
-        pc.update(2)
-    elif keys[pygame.K_a]:
-        #direccion 1
-        pc.update(3)
-    else:
-        pc.update(-1)
+            pc.update(-1)
 
-    display()
+        display()
+
     pygame.display.flip()
     pygame.time.wait(10)
 
 pygame.quit()
-    
-
